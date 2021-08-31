@@ -1,0 +1,16 @@
+vm test_vm (alfa beta gama) {
+    proc result (a b c) {
+        sum $a [mul $b $c]
+    }
+
+    result $alfa $beta $gama
+}
+
+# assert ([test_vm 1 2 3] == 7)
+set result [test_vm 1 2 3]
+print "result:$result"
+if ($result == 7) {
+    print "OK"
+} else {
+    print "Error: result is $result"
+}
