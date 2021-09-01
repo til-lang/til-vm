@@ -12,13 +12,10 @@ enum Opcode
 {
     push,
     push_from_bp,
-    pop_to_bp,
+    pop_to_sp,
 
     call_proc,
     call_primitive,
-
-    sum,
-    mul,
 }
 
 
@@ -61,6 +58,7 @@ alias ProcsDict = Proc[string];
 class Stack
 {
     int[64] stack;
+    size_t BP;
     size_t SP;
 
     this()
@@ -79,23 +77,31 @@ class Stack
 }
 
 
-
 alias PrimitiveWord = void function(Stack);
-PrimitiveWord[Opcode] primitiveWords;
+
+PrimitiveWord[string] primitiveWords;
+string[] dictionary;
+
 static this()
 {
-    primitiveWords[Opcode.sum] = function(Stack stack)
+    primitiveWords["sum"] = function(Stack stack)
     {
         stack.push(
             stack.pop() + stack.pop()
         );
     };
-    primitiveWords[Opcode.mul] = function(Stack stack)
+    primitiveWords["mul"] = function(Stack stack)
     {
         stack.push(
             stack.pop() * stack.pop()
         );
     };
+
+    // Index each opcode by number:
+    foreach(entry; primitiveWords.byPair)
+    {
+        dictionary ~= entry.key;
+    }
 }
 
 
@@ -125,7 +131,11 @@ class VM : ListItem
         size_t[string] parameterNames;
         foreach(index, parameter; parameters)
         {
-            parameterNames[parameter.toString()] = index;
+            // a b c   .length = 3
+            // 0 1 2   index
+            // 2 1 0
+            auto name = parameter.toString();
+            parameterNames[name] = parameters.length - index - 1;
         }
 
         string spacer = "";
@@ -194,13 +204,12 @@ command:
                 }
 
                 // Check if it's a call to a primitive word:
-                foreach(entry; primitiveWords.byPair)
+                foreach(index, opcode; dictionary)
                 {
-                    auto opcode = entry.key;
-                    if (command.name == to!string(opcode))
+                    if (command.name == opcode)
                     {
                         routine ~= compilePrimitiveWordCall(
-                            opcode, level
+                            cast(int)index, level
                         );
                         break command;
                     }
@@ -229,9 +238,9 @@ command:
     {
         return [Instruction(Opcode.call_proc, proc.index)];
     }
-    Routine compilePrimitiveWordCall(Opcode opcode, int level)
+    Routine compilePrimitiveWordCall(int index, int level)
     {
-        return [Instruction(Opcode.call_primitive, opcode)];
+        return [Instruction(Opcode.call_primitive, index)];
     }
 
     void addProc(string name, Routine routine)
@@ -243,17 +252,37 @@ command:
             writeln(" ", instruction);
         }
     }
+    void execute(Routine routine)
+    {
+        foreach(instruction; routine)
+        {
+            this.executeInstruction(instruction);
+        }
+    }
+    void executeInstruction(Instruction instruction)
+    {
+        final switch(instruction.opcode)
+        {
+            case Opcode.push:
+            break;
+            case Opcode.push_from_bp:
+            break;
+            case Opcode.pop_to_sp:
+            break;
+            case Opcode.call_proc:
+            break;
+            case Opcode.call_primitive:
+            break;
+        }
+        writeln(instruction);
+    }
 
     CommandContext run(string path, CommandContext context)
     {
         auto arguments = context.items;
         auto routine = this.compile(this.body.subprogram, this.parameters.items);
         writeln("Main program:");
-        foreach(instruction; routine)
-        {
-            writeln(instruction);
-        }
-        // TODO: Run the VM!
+        this.execute(routine);
         // TESTE:
         return context.ret(new IntegerAtom(7));
     }
