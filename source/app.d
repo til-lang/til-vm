@@ -12,7 +12,6 @@ enum Opcode
 {
     push,
     push_from_bp,
-    pop_to_sp,
 
     call_proc,
     call_primitive,
@@ -41,67 +40,21 @@ alias Routine = Instruction[];
 struct Proc
 {
     string name;
-    int index;
     Routine routine;
 
-    this(string name, int index, Routine routine)
+    this(string name, Routine routine)
     {
         this.name = name;
-        this.index = index;
         this.routine = routine;
     }
 }
 
-alias ProcsDict = Proc[string];
+alias ProcsDict = Proc[size_t];
 
-
-class Stack
+enum Dictionary
 {
-    int[64] stack;
-    size_t BP;
-    size_t SP;
-
-    this()
-    {
-        this.SP = 0;
-    }
-
-    int pop()
-    {
-        return stack[SP--];
-    }
-    void push(int v)
-    {
-        stack[++SP] = v;
-    }
-}
-
-
-alias PrimitiveWord = void function(Stack);
-
-PrimitiveWord[string] primitiveWords;
-string[] dictionary;
-
-static this()
-{
-    primitiveWords["sum"] = function(Stack stack)
-    {
-        stack.push(
-            stack.pop() + stack.pop()
-        );
-    };
-    primitiveWords["mul"] = function(Stack stack)
-    {
-        stack.push(
-            stack.pop() * stack.pop()
-        );
-    };
-
-    // Index each opcode by number:
-    foreach(entry; primitiveWords.byPair)
-    {
-        dictionary ~= entry.key;
-    }
+    sum,
+    mul,
 }
 
 
@@ -196,20 +149,20 @@ command:
                 // Check if it's a call to a user-defined procedure:
                 foreach(entry; this.procs.byPair)
                 {
-                    if (command.name == entry.key)
+                    if (command.name == entry.value.name)
                     {
-                        routine ~= compileProcCall(entry.value, level);
+                        routine ~= compileProcCall(entry.key, level);
                         break command;
                     }
                 }
 
                 // Check if it's a call to a primitive word:
-                foreach(index, opcode; dictionary)
+                for (int i = 0; i <= Dictionary.max; i++)
                 {
-                    if (command.name == opcode)
+                    if (to!Dictionary(command.name) == i)
                     {
                         routine ~= compilePrimitiveWordCall(
-                            cast(int)index, level
+                            i, level
                         );
                         break command;
                     }
@@ -234,9 +187,9 @@ command:
         Routine routine = compile(body.subprogram, parameters.items);
         this.addProc(name, routine);
     }
-    Routine compileProcCall(Proc proc, int level)
+    Routine compileProcCall(size_t index, int level)
     {
-        return [Instruction(Opcode.call_proc, proc.index)];
+        return [Instruction(Opcode.call_proc, index)];
     }
     Routine compilePrimitiveWordCall(int index, int level)
     {
@@ -245,44 +198,114 @@ command:
 
     void addProc(string name, Routine routine)
     {
-        this.procs[name] = Proc(name, this.procsCount++, routine);
+        this.procs[this.procsCount++] = Proc(name, routine);
         writeln("NEW PROC: " ~ name);
         foreach(instruction; routine)
         {
             writeln(" ", instruction);
         }
     }
-    void execute(Routine routine)
+    void execute(Routine routine, Items arguments)
     {
-        foreach(instruction; routine)
+        size_t[64] stack;
+        size_t BP, SP = 0;
+
+        void printStack()
         {
-            this.executeInstruction(instruction);
+            string s = "[ ";
+            for (auto i = 0; i < SP; i++)
+            {
+                s ~= to!string(stack[i]);
+                if (i == BP)
+                {
+                    s ~= ":BP ";
+                }
+                else
+                {
+                    s ~= " ";
+                }
+            }
+            s ~= "]";
+            writeln(s);
         }
-    }
-    void executeInstruction(Instruction instruction)
-    {
-        final switch(instruction.opcode)
+
+        // Fill the stack with the execution arguments:
+        foreach (argument; arguments)
         {
-            case Opcode.push:
-            break;
-            case Opcode.push_from_bp:
-            break;
-            case Opcode.pop_to_sp:
-            break;
-            case Opcode.call_proc:
-            break;
-            case Opcode.call_primitive:
-            break;
+            stack[SP++] = argument.toInt();
         }
-        writeln(instruction);
+        printStack();
+        writeln("= go! =");
+
+        size_t pop()
+        {
+            return stack[--SP];
+        }
+        void push(size_t value)
+        {
+            stack[SP++] = value;
+        }
+
+        // TODO: load user-defined routines (procs)
+        // into memory before starting the program execution.
+        // We DON'T wanna call `execute` recursively,
+        // because we really want the "registers" to be
+        // local variables, so that they are mapped
+        // directly by the D compiler into... actual registers.
+
+        // TODO: this is going to become a while (true)
+        // with increment of IP.
+        foreach (instruction; routine)
+        {
+            final switch (instruction.opcode)
+            {
+                case Opcode.push:
+                    push(instruction.arg1);
+                break;
+                case Opcode.push_from_bp:
+                    push(stack[BP + instruction.arg1]);
+                break;
+                case Opcode.call_primitive:
+                    switch (instruction.arg1)
+                    {
+                        case Dictionary.sum:
+                            auto a = stack[SP];
+                            auto b = stack[SP - 1];
+                            SP -= 1;
+                            stack[SP] = a + b;
+                            break;
+                        case Dictionary.mul:
+                            auto a = stack[SP];
+                            auto b = stack[SP - 1];
+                            SP -= 1;
+                            stack[SP] = a * b;
+                            break;
+                        default:
+                            throw new Exception(
+                                "Unknown opcode:" ~ to!string(instruction.arg1)
+                            );
+                    }
+                break;
+                case Opcode.call_proc:
+                    // auto routine = this.procs[instruction.arg1];
+                    // TODO: here is where the fun begins...
+                    writeln("(Not implemented yet)");
+                break;
+            }
+            writeln(instruction);
+            printStack();
+
+        }
     }
 
     CommandContext run(string path, CommandContext context)
     {
         auto arguments = context.items;
-        auto routine = this.compile(this.body.subprogram, this.parameters.items);
+        auto routine = this.compile(
+            this.body.subprogram, this.parameters.items
+        );
         writeln("Main program:");
-        this.execute(routine);
+        this.execute(routine, arguments);
         // TESTE:
         return context.ret(new IntegerAtom(7));
     }
