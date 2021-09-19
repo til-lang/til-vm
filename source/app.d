@@ -87,6 +87,7 @@ enum Dictionary
     sum, sub, mul, div,
     eq,
     push, pop,
+    print,
 }
 
 
@@ -146,7 +147,7 @@ class VM : ListItem
 command:
             foreach (command; pipeline.commands)
             {
-                writeln("command:", command.name);
+                debug {writeln("command:", command.name);}
 
                 switch (command.name)
                 {
@@ -199,7 +200,7 @@ command:
                             }
                             else
                             {
-                                writeln("parameterNames:", parameterNames);
+                                debug {writeln("parameterNames:", parameterNames);}
                                 throw new Exception("Unknown name: " ~ n);
                             }
                             break;
@@ -207,9 +208,9 @@ command:
                             routine ~= Instruction(Opcode.push, argument.toInt());
                             break;
                         default:
-                            writeln(
-                                spacer,
-                                "UNKNOWN> ", argument.type, " (", argument, ")"
+                            throw new Exception(
+                                "UNKNOWN: " ~ to!string(argument.type)
+                                ~ " (" ~ to!string(argument) ~ ")"
                             );
                     }
                 }
@@ -367,10 +368,10 @@ command:
     void addProc(string name, Routine routine)
     {
         this.procs[this.procsCount++] = Proc(name, routine);
-        writeln("NEW PROC: " ~ name);
+        debug {writeln("NEW PROC: " ~ name);}
         foreach(instruction; routine)
         {
-            writeln(" ", instruction);
+            debug {writeln(" ", instruction);}
         }
     }
     size_t execute(Routine routine, Items arguments)
@@ -402,8 +403,10 @@ command:
         {
             stack[++SP] = argument.toInt();
         }
-        printStack("");
-        writeln("= go! =");
+        debug {
+            printStack("");
+            writeln("= go! =");
+        }
 
         size_t pop()
         {
@@ -416,11 +419,13 @@ command:
 
         bool executeRoutine(Routine routine)
         {
-            writeln("= executeRoutine =");
+            debug {writeln("= executeRoutine =");}
             foreach (instruction; routine)
             {
-                writeln(instruction);
-                printStack("    ");
+                debug {
+                    writeln(instruction);
+                    printStack("    ");
+                }
 
                 final switch (instruction.opcode)
                 {
@@ -470,10 +475,6 @@ command:
                         int counter = 0;
                         while (true)
                         {
-                            if (counter++ >= 7)  // TESTE
-                            {
-                                throw new Exception("infinite loop detected");
-                            }
                             if (executeRoutine(subroutines[index]))
                             {
                                 return true;
@@ -485,34 +486,32 @@ command:
                             case Dictionary.sum:
                                 auto a = stack[SP];
                                 auto b = stack[SP - 1];
-                                SP--;
-                                stack[SP] = a + b;
+                                stack[--SP] = a + b;
                                 break;
                             case Dictionary.sub:
                                 auto a = stack[SP];
                                 auto b = stack[SP - 1];
-                                SP--;
-                                stack[SP] = a - b;
+                                stack[--SP] = a - b;
                                 break;
                             case Dictionary.mul:
                                 auto a = stack[SP];
                                 auto b = stack[SP - 1];
-                                SP--;
-                                stack[SP] = a * b;
+                                stack[--SP] = a * b;
                                 break;
                             case Dictionary.div:
                                 auto a = stack[SP];
                                 auto b = stack[SP - 1];
-                                SP--;
-                                stack[SP] = a / b;
+                                stack[--SP] = a / b;
                                 break;
                             case Dictionary.eq:
                                 auto a = stack[SP];
                                 auto b = stack[SP - 1];
-                                SP--;
                                 // if equals, result must be ZERO,
                                 // so we invert the comparison, here:
-                                stack[SP] = (a != b);
+                                stack[--SP] = (a != b);
+                                break;
+                            case Dictionary.print:
+                                writeln(stack[--SP]);
                                 break;
                             default:
                                 throw new Exception(
@@ -523,13 +522,13 @@ command:
                         break;
                     case Opcode.call_proc:
                         auto proc = this.procs[instruction.arg1];
-                        writeln("Executing procedure ", proc);
+                        debug {writeln("Executing procedure ", proc);}
                         executeRoutine(proc.routine);
                         break;
                 }
-                printStack(" -> ");
+                debug {printStack(" -> ");}
             } // end for instruction in routine
-            writeln("==================");
+            debug {writeln("==================");}
 
             // true = return
             // false = end of the subroutine
@@ -539,7 +538,7 @@ command:
         // "main" code of this function:
         executeRoutine(routine);
 
-        printStack("STACK: ");
+        debug {printStack("STACK: ");}
         return stack[SP];
     }
 
@@ -555,7 +554,7 @@ command:
             0,
             "return from main routine"
         );
-        writeln("Main program:");
+        debug {writeln("Main program:");}
         auto value = this.execute(routine, arguments);
         return context.ret(new IntegerAtom(value));
     }

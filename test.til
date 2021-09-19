@@ -8,9 +8,8 @@ vm simple_vm (alfa beta gama) {
 
 # assert ([simple_vm 1 2 3] == 7)
 set result [simple_vm 1 2 3]
-print "result:$result"
 if ($result == 7) {
-    print "OK"
+    print "OK:$result"
 } else {
     print "Error: result is $result"
 }
@@ -39,7 +38,7 @@ vm fibonacci (n) {
 
 set x [fibonacci 3]
 if ($x == 3) {
-    print "OK"
+    print "OK:$x"
 } else {
     print "Error: x is $x"
 }
