@@ -12,11 +12,17 @@ enum Opcode
 {
     push,
     push_from_bp,
+    move_to_bp,
     add_to_bp,
-    ret,
+
+    exec_if_success,  // Execute a routine if stack[last] is zero
+    loop,
 
     call_proc,
     call_primitive,
+
+    ret,
+    ret_from_proc,
 }
 
 
@@ -78,8 +84,9 @@ alias ProcsDict = Proc[size_t];
 
 enum Dictionary
 {
-    sum,
-    mul,
+    sum, sub, mul, div,
+    eq,
+    push, pop,
 }
 
 
@@ -89,6 +96,7 @@ class VM : ListItem
     SimpleList parameters;
     SubList body;
     ProcsDict procs;
+    Routine[] subroutines;
     int procsCount = 0;
     ulong code_pointer = 0;
 
@@ -135,17 +143,33 @@ class VM : ListItem
 
         foreach (pipeline; subprogram.pipelines)
         {
+command:
             foreach (command; pipeline.commands)
             {
-                if (command.name == "proc")
+                writeln("command:", command.name);
+
+                switch (command.name)
                 {
-                    compileProc(command, level);
-                    continue;
+                    case "proc":
+                        compileProc(command, level);
+                        continue command;
+                    case "if":
+                        routine ~= compileIf(command, parameters, level);
+                        continue command;
+                    case "loop":
+                        routine ~= compileLoop(command, parameters, level);
+                        continue command;
+                    default:
+                        break;
                 }
 
                 // Evaluate all arguments:
                 foreach (index, argument; command.arguments)
                 {
+                    if (index == 0 && command.name == "set")
+                    {
+                        continue;
+                    }
                     switch(argument.type)
                     {
                         case ObjectType.SubList:
@@ -179,12 +203,38 @@ class VM : ListItem
                                 throw new Exception("Unknown name: " ~ n);
                             }
                             break;
+                        case ObjectType.Integer:
+                            routine ~= Instruction(Opcode.push, argument.toInt());
+                            break;
                         default:
                             writeln(
                                 spacer,
                                 "UNKNOWN> ", argument.type, " (", argument, ")"
                             );
                     }
+                }
+
+                switch (command.name)
+                {
+                    case "set":
+                        routine ~= compileSet(
+                            command,
+                            parameterNames,
+                            level
+                        );
+                        continue command;
+                    case "return":
+                        routine ~= Instruction(
+                            Opcode.ret_from_proc,
+                            0,
+                            "return command", 
+                        );
+                        continue command;
+                    case "push":
+                    case "pop":
+                        continue command;
+                    default:
+                        break;
                 }
 
                 // Check if it's a call to a user-defined procedure:
@@ -237,12 +287,81 @@ class VM : ListItem
         }
         string name = command.arguments[0].toString();
 
-        // TODO: check for array size!
+        if (command.arguments.length < 3)
+        {
+            throw new Exception(
+                "proc needs 3 arguments: name, parameters list and body"
+            );
+        }
         auto parameters = cast(SimpleList)command.arguments[1];
-        auto body = cast(SubList)command.arguments[2];
+        auto body = (cast(SubList)command.arguments[2]).subprogram;
 
-        Routine routine = compile(body.subprogram, parameters.items);
+        Routine routine = compile(body, parameters.items);
         this.addProc(name, routine);
+    }
+    Routine compileIf(Command command, Items parameters, int level)
+    {
+        Routine routine;
+
+        if (command.arguments.length < 2)
+        {
+            throw new Exception("if needs 2 arguments: condition and body");
+        }
+        auto condition = (cast(SubList)command.arguments[0]).subprogram;
+        auto body = (cast(SubList)command.arguments[1]).subprogram;
+
+        // run the condition:
+        routine ~= compile(condition, parameters, level + 1);
+
+        // execute body if success/true:
+        this.subroutines ~= compile(body, parameters, level + 1);
+        auto index = this.subroutines.length - 1;
+        routine ~= Instruction(Opcode.exec_if_success, index);
+
+        return routine;
+    }
+    Routine compileLoop(Command command, Items parameters, int level)
+    {
+        Routine routine;
+
+        auto body = (cast(SubList)command.arguments[0]).subprogram;
+        this.subroutines ~= compile(body, parameters, level + 1);
+        auto index = this.subroutines.length - 1;
+        routine ~= Instruction(Opcode.loop, index);
+
+        return routine;
+    }
+    Routine compileSet(
+        Command command,
+        size_t[string] parameterNames,
+        int level
+    )
+    {
+        Routine routine;
+
+        /*
+        proc f (x) {
+            set x [sum x 1]  # <-------------
+            return $x
+        }
+        */
+        auto n = command.arguments[0].toString();
+        if (auto countPointer = n in parameterNames)
+        {
+            routine ~= [
+                Instruction(
+                    Opcode.move_to_bp,
+                    *countPointer,
+                    "set " ~ n
+                ),
+            ];
+        }
+        else
+        {
+            throw new Exception("Unknown name: " ~ n);
+        }
+
+        return routine;
     }
 
     void addProc(string name, Routine routine)
@@ -278,7 +397,7 @@ class VM : ListItem
         }
 
         // Fill the stack with the execution arguments:
-        SP -= 1;
+        SP--;
         foreach (argument; arguments)
         {
             stack[++SP] = argument.toInt();
@@ -295,7 +414,7 @@ class VM : ListItem
             stack[++SP] = value;
         }
 
-        void executeRoutine(Routine routine)
+        bool executeRoutine(Routine routine)
         {
             writeln("= executeRoutine =");
             foreach (instruction; routine)
@@ -307,13 +426,16 @@ class VM : ListItem
                 {
                     case Opcode.push:
                         push(instruction.arg1);
-                    break;
+                        break;
                     case Opcode.push_from_bp:
                         push(stack[BP + instruction.arg1]);
-                    break;
+                        break;
+                    case Opcode.move_to_bp:
+                        stack[BP + instruction.arg1] = stack[SP--];
+                        break;
                     case Opcode.add_to_bp:
                         BP += instruction.arg1;
-                    break;
+                        break;
                     case Opcode.ret:
                         // Put the last pushed value
                         // into BP (return value address):
@@ -322,21 +444,75 @@ class VM : ListItem
                         SP = BP;
                         // Move BP to the old position:
                         BP -= instruction.arg1;
-                    break;
+
+                        /*
+                        No REAL need to `return true`, here, since
+                        Opcode.ret is put automatically after a
+                        user-defined procedure routine that
+                        will not be running anymore
+                        anyway...
+                        */
+                        return true;
+                    case Opcode.ret_from_proc:
+                        return true;
+                    case Opcode.exec_if_success:
+                        if (stack[SP--] == 0)
+                        {
+                            auto index = instruction.arg1;
+                            if (executeRoutine(subroutines[index]))
+                            {
+                                return true;
+                            }
+                        }
+                        break;
+                    case Opcode.loop:
+                        auto index = instruction.arg1;
+                        int counter = 0;
+                        while (true)
+                        {
+                            if (counter++ >= 7)  // TESTE
+                            {
+                                throw new Exception("infinite loop detected");
+                            }
+                            if (executeRoutine(subroutines[index]))
+                            {
+                                return true;
+                            }
+                        }
                     case Opcode.call_primitive:
                         switch (instruction.arg1)
                         {
                             case Dictionary.sum:
                                 auto a = stack[SP];
                                 auto b = stack[SP - 1];
-                                SP -= 1;
+                                SP--;
                                 stack[SP] = a + b;
+                                break;
+                            case Dictionary.sub:
+                                auto a = stack[SP];
+                                auto b = stack[SP - 1];
+                                SP--;
+                                stack[SP] = a - b;
                                 break;
                             case Dictionary.mul:
                                 auto a = stack[SP];
                                 auto b = stack[SP - 1];
-                                SP -= 1;
+                                SP--;
                                 stack[SP] = a * b;
+                                break;
+                            case Dictionary.div:
+                                auto a = stack[SP];
+                                auto b = stack[SP - 1];
+                                SP--;
+                                stack[SP] = a / b;
+                                break;
+                            case Dictionary.eq:
+                                auto a = stack[SP];
+                                auto b = stack[SP - 1];
+                                SP--;
+                                // if equals, result must be ZERO,
+                                // so we invert the comparison, here:
+                                stack[SP] = (a != b);
                                 break;
                             default:
                                 throw new Exception(
@@ -344,23 +520,27 @@ class VM : ListItem
                                     ~ to!string(instruction.arg1)
                                 );
                         }
-                    break;
+                        break;
                     case Opcode.call_proc:
                         auto proc = this.procs[instruction.arg1];
                         writeln("Executing procedure ", proc);
                         executeRoutine(proc.routine);
-                    break;
+                        break;
                 }
                 printStack(" -> ");
             } // end for instruction in routine
             writeln("==================");
+
+            // true = return
+            // false = end of the subroutine
+            return false;
         } // end executeRoutine
 
         // "main" code of this function:
         executeRoutine(routine);
 
         printStack("STACK: ");
-        return stack[0];
+        return stack[SP];
     }
 
     CommandContext run(string path, CommandContext context)
