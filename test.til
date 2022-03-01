@@ -1,3 +1,5 @@
+print "sum"
+
 vm simple_vm (alfa beta gama) {
     proc result (a b c) {
         sum $a [mul $b $c]
@@ -6,15 +8,11 @@ vm simple_vm (alfa beta gama) {
     result $alfa $beta $gama
 }
 
-# assert ([simple_vm 1 2 3] == 7)
-set result [simple_vm 1 2 3]
-if ($result == 7) {
-    print "OK:$result"
-} else {
-    print "Error: result is $result"
-}
+assert ([simple_vm 1 2 3] == 7)
 
 # -------------------------------------
+print "fibonacci"
+
 vm fibonacci (n) {
     proc iterate (n counter r_1 r_2) {
         if {eq $n 0} { return $r_1 }
@@ -36,9 +34,4 @@ vm fibonacci (n) {
     fibo $n
 }
 
-set x [fibonacci 3]
-if ($x == 3) {
-    print "OK:$x"
-} else {
-    print "Error: x is $x"
-}
+assert ([fibonacci 7] == 21)

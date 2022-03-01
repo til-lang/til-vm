@@ -91,7 +91,7 @@ enum Dictionary
 }
 
 
-class VM : ListItem
+class VM : Command
 {
     string name;
     SimpleList parameters;
@@ -103,6 +103,7 @@ class VM : ListItem
 
     this(string name, SimpleList parameters, SubList body)
     {
+        super(null);
         this.name = name;
         this.parameters = parameters;
         this.body = body;
@@ -145,7 +146,7 @@ class VM : ListItem
         foreach (pipeline; subprogram.pipelines)
         {
 command:
-            foreach (command; pipeline.commands)
+            foreach (command; pipeline.commandCalls)
             {
                 debug {writeln("command:", command.name);}
 
@@ -279,7 +280,7 @@ command:
 
         return routine;
     }
-    void compileProc(Command command, int level)
+    void compileProc(CommandCall command, int level)
     {
         string spacer = "";
         for (int i=0; i < level; i++)
@@ -300,7 +301,7 @@ command:
         Routine routine = compile(body, parameters.items);
         this.addProc(name, routine);
     }
-    Routine compileIf(Command command, Items parameters, int level)
+    Routine compileIf(CommandCall command, Items parameters, int level)
     {
         Routine routine;
 
@@ -321,7 +322,7 @@ command:
 
         return routine;
     }
-    Routine compileLoop(Command command, Items parameters, int level)
+    Routine compileLoop(CommandCall command, Items parameters, int level)
     {
         Routine routine;
 
@@ -333,7 +334,7 @@ command:
         return routine;
     }
     Routine compileSet(
-        Command command,
+        CommandCall command,
         size_t[string] parameterNames,
         int level
     )
@@ -542,12 +543,15 @@ command:
         return stack[SP];
     }
 
-    CommandContext run(string path, CommandContext context)
+    override Context run(string path, Context context)
     {
         auto arguments = context.items;
+
+        // TODO: compile at initialization
         auto routine = this.compile(
             this.body.subprogram, this.parameters.items
         );
+
         // Force the main program to return properly:
         routine ~= Instruction(
             Opcode.ret,
@@ -555,17 +559,18 @@ command:
             "return from main routine"
         );
         debug {writeln("Main program:");}
+
         auto value = this.execute(routine, arguments);
+
         return context.ret(new IntegerAtom(value));
     }
 }
 
-
-extern (C) CommandHandler[string] getCommands(Process escopo)
+extern (C) CommandsMap getCommands(Process escopo)
 {
-    CommandHandler[string] commands;
+    CommandsMap commands;
 
-    commands[null] = (string path, CommandContext context)
+    commands[null] = new Command((string path, Context context)
     {
         // vm f (x) { body }
         string name = context.pop!string;
@@ -574,17 +579,10 @@ extern (C) CommandHandler[string] getCommands(Process escopo)
 
         auto vm = new VM(name, parameters, body);
 
-        CommandContext closure(string path, CommandContext context)
-        {
-            return vm.run(path, context);
-        }
-
         // Make the procedure available:
-        context.escopo.commands[name] = &closure;
-
-        context.exitCode = ExitCode.CommandSuccess;
+        context.escopo.commands[name] = vm;
         return context;
-    };
+    });
 
     return commands;
 }
