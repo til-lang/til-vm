@@ -8,12 +8,16 @@ Small VM embedded in [Til](https://til-lang.github.io/til/) language;
 
 ```tcl
 vm f (x) {
-    proc f (x) {
-        return [mul $x 10]
+    proc ten_times (x) {
+        mul $x 10
     }
 
-    return [f $x]
+    # There is no "main" proc.
+    # The last value in the stack is the return value of the VM.
+    ten_times $x
+
 }
 
-print [f 10]  # == 100
+print [f 10]
+# 100
 ```
