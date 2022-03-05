@@ -95,13 +95,13 @@ class VM : Command
 {
     string name;
     SimpleList parameters;
-    SubList body;
+    SubProgram body;
     ProcsDict procs;
     Routine[] subroutines;
     int procsCount = 0;
     ulong code_pointer = 0;
 
-    this(string name, SimpleList parameters, SubList body)
+    this(string name, SimpleList parameters, SubProgram body)
     {
         super(null);
         this.name = name;
@@ -174,7 +174,7 @@ command:
                     }
                     switch(argument.type)
                     {
-                        case ObjectType.SubList:
+                        case ObjectType.SubProgram:
                             throw new Exception(
                                 "VM should not compile a SubProgram"
                             );
@@ -296,7 +296,7 @@ command:
             );
         }
         auto parameters = cast(SimpleList)command.arguments[1];
-        auto body = (cast(SubList)command.arguments[2]).subprogram;
+        auto body = cast(SubProgram)command.arguments[2];
 
         Routine routine = compile(body, parameters.items);
         this.addProc(name, routine);
@@ -309,8 +309,8 @@ command:
         {
             throw new Exception("if needs 2 arguments: condition and body");
         }
-        auto condition = (cast(SubList)command.arguments[0]).subprogram;
-        auto body = (cast(SubList)command.arguments[1]).subprogram;
+        auto condition = cast(SubProgram)command.arguments[0];
+        auto body = cast(SubProgram)command.arguments[1];
 
         // run the condition:
         routine ~= compile(condition, parameters, level + 1);
@@ -326,7 +326,7 @@ command:
     {
         Routine routine;
 
-        auto body = (cast(SubList)command.arguments[0]).subprogram;
+        auto body = cast(SubProgram)command.arguments[0];
         this.subroutines ~= compile(body, parameters, level + 1);
         auto index = this.subroutines.length - 1;
         routine ~= Instruction(Opcode.loop, index);
@@ -549,7 +549,7 @@ command:
 
         // TODO: compile at initialization
         auto routine = this.compile(
-            this.body.subprogram, this.parameters.items
+            this.body, this.parameters.items
         );
 
         // Force the main program to return properly:
@@ -566,7 +566,7 @@ command:
     }
 }
 
-extern (C) CommandsMap getCommands(Process escopo)
+extern (C) CommandsMap getCommands(Escopo escopo)
 {
     CommandsMap commands;
 
@@ -575,7 +575,7 @@ extern (C) CommandsMap getCommands(Process escopo)
         // vm f (x) { body }
         string name = context.pop!string;
         SimpleList parameters = context.pop!SimpleList;
-        SubList body = context.pop!SubList;
+        SubProgram body = context.pop!SubProgram;
 
         auto vm = new VM(name, parameters, body);
 
